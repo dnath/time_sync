@@ -242,8 +242,13 @@ func Run(trial int, servers []TimeServer) {
 
 func ClientMain() {
 	servers := GetConfig()
+  var rho int = 15  // 15 ms / min
+  var delta int = 1 // 1 ms
+
+  timeToSleep := time.Duration((delta*60) / (2*rho)) * time.Second
 	for trial := 0; ; trial++ {
 		Run(trial, servers)
+    time.Sleep(timeToSleep)
 	}
 }
 
