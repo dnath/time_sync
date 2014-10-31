@@ -2,13 +2,14 @@ Time Synchronization : Marzullo's Algorithm
 ===========================================
 
 
-A Go client for syncing local time with multiple time servers according to Marzullo's algorithm.
+A Go UDP client for syncing local time with multiple time servers according to [Marzullo's algorithm](https://en.wikipedia.org/wiki/Marzullo's_algorithm). 
+A sample UDP Time Server is also added for testing purposes.
 
-For running it, you have to have [golang](http://golang.org/) installed on your machine. Time server ip's have been pre-configured in the client.
+Running the client is very simple, just type the following into the terminal and viola...
 
-Running it is very simple, just type the following into the terminal and viola...
-
-	$ go run client.go
+	$ ./configure
+	$ make
+	$ ./bin/client
 	
 Output will of the form --
 	
