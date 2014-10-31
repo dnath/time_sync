@@ -1,5 +1,7 @@
 package main
 
+import "fmt"
+
 func getTestOffsets1() IntervalOffsetArray {
 	return IntervalOffsetArray{
 		IntervalOffset{serverIndex: 0, offset: 10, offsetType: BEGIN},
@@ -47,11 +49,24 @@ func getTestOffsets3() IntervalOffsetArray {
 
 func TestGetMaxIntersection() {
 	testOffsets1 := getTestOffsets1()
-	GetMaxIntersection(testOffsets1)
+  maxIntersections, maxIntersectionStart, maxIntersectionEnd := GetMaxIntersection(testOffsets1)
+  if maxIntersections == 4 && maxIntersectionStart.offset == 35 && maxIntersectionEnd.offset == 40 {
+	 fmt.Println("Passed")
+  }
 
 	testOffsets2 := getTestOffsets2()
-	GetMaxIntersection(testOffsets2)
+	maxIntersections, maxIntersectionStart, maxIntersectionEnd = GetMaxIntersection(testOffsets2)
+  if maxIntersections == 1 && maxIntersectionStart.offset == 50 && maxIntersectionEnd.offset == 60 {
+   fmt.Println("Passed")
+  }
 
 	testOffsets3 := getTestOffsets3()
-	GetMaxIntersection(testOffsets3)
+	maxIntersections, maxIntersectionStart, maxIntersectionEnd = GetMaxIntersection(testOffsets3)
+  if maxIntersections == 1 && maxIntersectionStart.offset == 75 && maxIntersectionEnd.offset == 85 {
+   fmt.Println("Passed")
+  }
+}
+
+func main() {
+  TestGetMaxIntersection()
 }

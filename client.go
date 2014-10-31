@@ -1,183 +1,85 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
-	"math"
 	"net"
 	"os"
-	"sort"
 	"strconv"
+  "encoding/json"
 	"time"
+  "io/ioutil"
+  flags "github.com/jessevdk/go-flags"
 )
 
 // Consts
 
 const (
-	NANOSEC_PER_SEC = 1000000000
-	BEGIN           = -1
-	END             = 1
+	RHO    = 15 // local clock drift rate = 15 ms/min
+	DELTA  = 1  // drift tolerance = 1 ms
 )
 
 // Types
 
-type TimeServer struct {
-	ip   string
-	port int
-}
-
 type TimeServerResponseInfo struct {
 	localSendTime, serverTime, rtt float64
+  success bool
 }
-
-type IntervalOffset struct {
-	serverIndex int
-	offset      float64
-	offsetType  int
-}
-
-type IntervalOffsetArray []IntervalOffset
 
 // Functions
 
-func (arr IntervalOffsetArray) Len() int {
-	return len(arr)
-}
+func GetConfig(serverSettingsFilename string) []TimeServer {
+  readBytes, err := ioutil.ReadFile(serverSettingsFilename)
+  CheckError(err, true)
 
-func (arr IntervalOffsetArray) Swap(i, j int) {
-	arr[i], arr[j] = arr[j], arr[i]
-}
+  var jsonObject map[string]TimeServerArray
+  err = json.Unmarshal(readBytes, &jsonObject)
+  CheckError(err, true)
 
-func (arr IntervalOffsetArray) Less(i, j int) bool {
-	if arr[i].offset == arr[j].offset {
-		if arr[i].offsetType == arr[j].offsetType {
-			return i < j
-		}
-		return arr[i].offsetType < arr[j].offsetType
-	}
-	return arr[i].offset < arr[j].offset
-}
-
-func checkError(err error, willExit bool) {
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
-		if willExit {
-			os.Exit(1)
-		}
-	}
-}
-
-func GetHumanReadableTime(seconds float64) time.Time {
-	return time.Unix(0, int64(seconds*NANOSEC_PER_SEC))
-}
-
-func GetConfig() []TimeServer {
-	return []TimeServer{
-		TimeServer{ip: "54.172.168.244", port: 5000},
-		TimeServer{ip: "54.169.67.45", port: 5000},
-		TimeServer{ip: "54.207.15.207", port: 5000},
-		TimeServer{ip: "54.191.73.92", port: 5000},
-		TimeServer{ip: "128.111.44.106", port: 12291},
-	}
+  return jsonObject["servers"]
 }
 
 func RequestTimeSync(server TimeServer) (info TimeServerResponseInfo) {
 	var message = "\n"
 	var buf [256]byte
-
-	var byteBuffer bytes.Buffer
-	fmt.Fprintf(&byteBuffer, "%s:%d", server.ip, server.port)
-
-	addr := byteBuffer.String()
-	// fmt.Printf("server = %s", addr)
+	addr := server.String()
 
 	serverAddr, err := net.ResolveUDPAddr("udp4", addr)
-	checkError(err, true)
+	if err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+    info.success = false
+    return info
+  }
 
 	info.localSendTime = float64(time.Now().UnixNano()) / NANOSEC_PER_SEC
 
 	conn, err := net.DialUDP("udp", nil, serverAddr)
 	defer conn.Close()
-	checkError(err, true)
+	if err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+    info.success = false
+    return info
+  }
 
 	_, err = conn.Write([]byte(message))
-	checkError(err, true)
+	if err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+    info.success = false
+    return info
+  }
 
 	numBytesRead, err := conn.Read(buf[0:])
-	checkError(err, true)
+	if err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %s\n", err.Error())
+    info.success = false
+    return info
+  }
 
 	localRecvTime := float64(time.Now().UnixNano()) / NANOSEC_PER_SEC
-	// fmt.Printf("localSendTime  = %f\n", info.localSendTime)
-	// fmt.Printf("localRecvTime  = %f\n", localRecvTime)
-
 	info.rtt = localRecvTime - info.localSendTime
-	// fmt.Printf("rtt            = %f\n", info.rtt)
-
 	info.serverTime, err = strconv.ParseFloat(string(buf[0:numBytesRead]), 64)
-	// fmt.Printf("serverTime     = %f\n", info.serverTime)
+  info.success = true
 
 	return info
-}
-
-func GetMaxIntersection(offsets IntervalOffsetArray) (maxIntersections int,
-	maxIntersectionStart IntervalOffset,
-	maxIntersectionEnd IntervalOffset) {
-
-	var intersectionStart, intersectionEnd IntervalOffset
-	var isMaxIntersection bool = false
-	var numIntersections int = 0
-	var maxIntersectionMidpoint float64 = 0
-
-	sort.Sort(offsets)
-	var globalMidpoint = (offsets[0].offset + offsets[len(offsets)-1].offset) / 2
-
-	// fmt.Printf("sorted offsets =\n")
-	// for _, offset := range offsets {
-	// 	fmt.Printf("%d (%f, %d)\n", offset.serverIndex, offset.offset, offset.offsetType)
-	// }
-
-	for _, offset := range offsets {
-		if offset.offsetType == BEGIN {
-			intersectionStart = offset
-		} else {
-			intersectionEnd = offset
-		}
-
-		numIntersections -= offset.offsetType
-		if numIntersections > maxIntersections {
-			maxIntersections = numIntersections
-			maxIntersectionStart = intersectionStart
-			isMaxIntersection = true
-		}
-
-    // fmt.Printf("numIntersections = %d isMaxIntersection = %s offset = {%f, %d}\n", numIntersections, 
-    //                                                                                isMaxIntersection, 
-    //                                                                                offset.offset, 
-    //                                                                                offset.offsetType)
-
-		if numIntersections == maxIntersections-1 && !isMaxIntersection && offset.offsetType == END {
-      var midpoint = (intersectionStart.offset + offset.offset) / 2
-      // fmt.Printf("midpoint = %f\n", midpoint)
-      // fmt.Printf("global midpoint = %f\n", globalMidpoint)
-			
-      if math.Abs(midpoint-globalMidpoint) < math.Abs(midpoint-maxIntersectionMidpoint) {
-        maxIntersectionStart = intersectionStart
-        isMaxIntersection = true
-			}
-		}
-
-		if offset.offsetType == END && isMaxIntersection && numIntersections == maxIntersections-1 {
-			maxIntersectionEnd = intersectionEnd
-			maxIntersectionMidpoint = (maxIntersectionStart.offset + maxIntersectionEnd.offset) / 2
-			isMaxIntersection = false
-		}
-	}
-
-	// fmt.Printf("maxIntersections = %d, start = %f, end = %f\n\n", maxIntersections,
-	// 	                                                            maxIntersectionStart.offset,
-	// 	                                                            maxIntersectionEnd.offset)
-
-	return maxIntersections, maxIntersectionStart, maxIntersectionEnd
 }
 
 func Run(trial int, servers []TimeServer) {
@@ -190,10 +92,17 @@ func Run(trial int, servers []TimeServer) {
 	var minLocalSendTime float64 = 0.0
 
 	for serverIndex, server := range servers {
-		info[serverIndex] = RequestTimeSync(server)
+    response := RequestTimeSync(server)
+    if !response.success {
+      offsets[2*serverIndex] = IntervalOffset{serverIndex: serverIndex, offset: INVALID_OFFSET, offsetType: 0}
+      offsets[2*serverIndex] = IntervalOffset{serverIndex: serverIndex, offset: INVALID_OFFSET, offsetType: 0}
+      continue
+    }
+
+    info[serverIndex] = response
 
 		// Time Delta shift for pretending that the requests were all sent at the same time, minLocalSendTime
-		if serverIndex == 0 {
+		if minLocalSendTime == 0.0 {
 			minLocalSendTime = info[serverIndex].localSendTime
 		} else {
 			var delta = info[serverIndex].localSendTime - minLocalSendTime
@@ -201,22 +110,14 @@ func Run(trial int, servers []TimeServer) {
 			info[serverIndex].serverTime -= delta
 		}
 
-		// fmt.Printf("%f %f %f\n\n", info[serverIndex].localSendTime,
-		//                            info[serverIndex].serverTime,
-		//                            info[serverIndex].rtt)
-
 		offsets[2*serverIndex] = IntervalOffset{serverIndex: serverIndex,
-			offset:     info[serverIndex].serverTime - info[serverIndex].rtt,
-			offsetType: BEGIN}
+			                                      offset: info[serverIndex].serverTime - info[serverIndex].rtt,
+			                                      offsetType: BEGIN}
 
 		offsets[2*serverIndex+1] = IntervalOffset{serverIndex: serverIndex,
-			offset:     info[serverIndex].serverTime + info[serverIndex].rtt,
-			offsetType: END}
+			                                        offset: info[serverIndex].serverTime + info[serverIndex].rtt,
+			                                        offsetType: END}
 	}
-
-	// for _, offset := range offsets {
-	//  fmt.Printf("%s\n", offset)
-	// }
 
 	maxIntersections, maxIntersectionStart, maxIntersectionEnd := GetMaxIntersection(offsets)
 
@@ -224,10 +125,12 @@ func Run(trial int, servers []TimeServer) {
 	fmt.Printf("current time = %s\n", GetHumanReadableTime(minLocalSendTime))
 
 	for serverIndex := 0; serverIndex < numServers; serverIndex++ {
-		fmt.Printf("[%s:%d] server time = %s, rtt = %fs\n", servers[serverIndex].ip,
-			servers[serverIndex].port,
-			GetHumanReadableTime(info[serverIndex].serverTime),
-			info[serverIndex].rtt)
+    if info[serverIndex].success {
+      fmt.Printf("[%s:%d] server time = %s, rtt = %fs\n", servers[serverIndex].IP,
+                                                          servers[serverIndex].Port,
+                                                          GetHumanReadableTime(info[serverIndex].serverTime),
+                                                          info[serverIndex].rtt)
+    }
 	}
 
 	if maxIntersections > 1 {
@@ -240,19 +143,28 @@ func Run(trial int, servers []TimeServer) {
 	}
 }
 
-func ClientMain() {
-	servers := GetConfig()
-  var rho int = 15  // 15 ms / min
-  var delta int = 1 // 1 ms
+func ClientMain(serverSettingsFilename string) {
+	servers := GetConfig(serverSettingsFilename)
 
-  timeToSleep := time.Duration((delta*60) / (2*rho)) * time.Second
+	timeToSleep := time.Duration((DELTA*60)/(2*RHO)) * time.Second
 	for trial := 0; ; trial++ {
 		Run(trial, servers)
-    time.Sleep(timeToSleep)
+		time.Sleep(timeToSleep)
 	}
 }
 
 func main() {
-  ClientMain()
-}
+	opts := new(
+		struct {
+			Settings string `short:"s" long:"settings" default:"conf/servers.json" description:"Server Settings Filename"`
+		})
 
+	parser := flags.NewParser(opts, flags.Default)
+
+	_, err := parser.Parse()
+	if err != nil {
+		os.Exit(0)
+	}
+
+	ClientMain(opts.Settings)
+}
