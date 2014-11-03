@@ -2,7 +2,11 @@ Time Synchronization : Marzullo's Algorithm
 ===========================================
 
 
-A Go UDP client for syncing local time with multiple time servers according to [Marzullo's algorithm](https://en.wikipedia.org/wiki/Marzullo's_algorithm). 
+A Go UDP client for syncing local time with multiple time servers according to [Marzullo's Algorithm](https://en.wikipedia.org/wiki/Marzullo's_algorithm).
+
+Interval Intersection in Marzullo's Algorithm:
+![Interval Intersection in Marzullo's algorithm](http://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Marzullo_example-1.jpg/600px-Marzullo_example-1.jpg)
+
 A sample UDP Time Server is also added for testing purposes.
 
 Running the client is very simple, just type the following into the terminal and viola...
